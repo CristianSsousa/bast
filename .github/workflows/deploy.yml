@@ -8,6 +8,7 @@ env:
   REGION: us-central1
   SERVICE_NAME: app-name
   INGRESS: all
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build-and-deploy:
@@ -18,7 +19,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Authenticate to GCP (OIDC)
         uses: google-github-actions/auth@v2
