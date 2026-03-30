@@ -4,17 +4,16 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/CristianSsousa/go-bast-cli/internal/clienv"
 	"github.com/CristianSsousa/go-bast-cli/internal/config"
 	"github.com/CristianSsousa/go-bast-cli/internal/constants"
 	"github.com/CristianSsousa/go-bast-cli/internal/logger"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-var (
-	cfgFile string
-	appLog  = logger.GetLogger()
-)
+var cfgFile string
 
 // isVerbose verifica se o modo verbose está ativado
 func isVerbose(cmd *cobra.Command) bool {
@@ -28,8 +27,24 @@ func isVerbose(cmd *cobra.Command) bool {
 // verbosePrint imprime mensagens apenas se o modo verbose estiver ativo usando logger estruturado
 func verbosePrint(cmd *cobra.Command, format string, args ...interface{}) {
 	if isVerbose(cmd) {
-		appLog.Debugf(format, args...)
+		logForFeatures().Debugf(format, args...)
 	}
+}
+
+// logForFeatures retorna o logger após clienv.Set (fallback para o logger global).
+func logForFeatures() logrus.FieldLogger {
+	if clienv.Current != nil && clienv.Current.Log != nil {
+		return clienv.Current.Log
+	}
+	return logger.GetLogger()
+}
+
+// configForFeatures retorna a config após clienv.Set (fallback para config.Get).
+func configForFeatures() *config.Config {
+	if clienv.Current != nil && clienv.Current.Config != nil {
+		return clienv.Current.Config
+	}
+	return config.Get()
 }
 
 var rootCmd = &cobra.Command{
@@ -49,27 +64,24 @@ Exemplos:
   bast update                     # Atualiza o CLI para a versão mais recente
   bast --help                     # Mostra esta mensagem de ajuda`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		// Inicializar configuração
 		if err := config.Init(cfgFile); err != nil {
-			appLog.Warnf("Erro ao carregar configuração: %v", err)
+			logger.GetLogger().Warnf("Erro ao carregar configuração: %v", err)
 		}
 
-		// Inicializar logger com configurações
 		cfg := config.Get()
 		logger.Init(cfg.Logging.Level, cfg.Logging.Format)
 
-		// Atualizar referência do logger
-		appLog = logger.GetLogger()
+		log := logger.GetLogger()
+		clienv.Set(config.Get(), log)
 
-		// Aplicar verbose se necessário
 		if isVerbose(cmd) {
-			appLog.SetLevel(logger.GetLogger().Level)
-			appLog.Debug("Modo verbose ativado")
+			log.SetLevel(logrus.DebugLevel)
+			log.Debug("Modo verbose ativado")
 		}
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		verbosePrint(cmd, "Executando comando raiz...")
-		cfg := config.Get()
+		cfg := configForFeatures()
 		fmt.Printf(constants.WelcomeMessage+"\n", cfg.App.Name)
 		fmt.Printf(constants.HelpMessage+"\n", cfg.App.Name)
 		verbosePrint(cmd, "Modo verbose está ativo.")
@@ -79,7 +91,7 @@ Exemplos:
 // Execute adiciona todos os comandos filhos ao comando raiz e define flags apropriadas.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		appLog.Errorf("Erro ao executar comando: %v", err)
+		logForFeatures().Errorf("Erro ao executar comando: %v", err)
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -92,6 +104,6 @@ func init() {
 
 	// Bind flags ao Viper
 	if err := viper.BindPFlag("features.verbose", rootCmd.PersistentFlags().Lookup("verbose")); err != nil {
-		appLog.Warnf("Erro ao vincular flag verbose: %v", err)
+		logger.GetLogger().Warnf("Erro ao vincular flag verbose: %v", err)
 	}
 }

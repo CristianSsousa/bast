@@ -1,29 +1,14 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"strings"
-	"time"
 
-	"github.com/CristianSsousa/go-bast-cli/internal/config"
+	"github.com/CristianSsousa/go-bast-cli/internal/update"
 	"github.com/spf13/cobra"
 )
-
-const (
-	githubAPIURL = "https://api.github.com/repos/CristianSsousa/go-bast-cli/releases/latest"
-	timeout      = 10 * time.Second
-)
-
-type githubRelease struct {
-	TagName string `json:"tag_name"`
-	Name    string `json:"name"`
-	Body    string `json:"body"`
-}
 
 var updateCmd = &cobra.Command{
 	Use:   "update",
@@ -39,89 +24,7 @@ Exemplos:
   bast update --check      # Apenas verifica se há atualização disponível
   bast update --help       # Mostra ajuda deste comando`,
 	Run: func(cmd *cobra.Command, args []string) {
-		checkOnly, err := cmd.Flags().GetBool("check")
-		if err != nil {
-			verbosePrint(cmd, "Erro ao obter flag 'check': %v", err)
-			checkOnly = false
-		}
-
-		verbosePrint(cmd, "Iniciando verificação de atualização...")
-		cfg := config.Get()
-
-		fmt.Printf("Versão atual: %s\n", cfg.App.Version)
-		fmt.Println("Verificando atualizações disponíveis...")
-
-		latestRelease, err := getLatestRelease()
-		if err != nil {
-			verbosePrint(cmd, "Erro ao obter release: %v", err)
-			fmt.Printf("Erro ao verificar atualizações: %v\n", err)
-			fmt.Println("\nDica: Verifique sua conexão com a internet.")
-			os.Exit(1)
-		}
-
-		latestVersion := strings.TrimPrefix(latestRelease.TagName, "v")
-		currentVersion := cfg.App.Version
-
-		verbosePrint(cmd, "Versão mais recente encontrada: %s", latestVersion)
-		verbosePrint(cmd, "Versão atual: %s", currentVersion)
-
-		if compareVersions(currentVersion, latestVersion) >= 0 {
-			fmt.Printf("Você já está usando a versão mais recente (%s)!\n", currentVersion)
-			return
-		}
-
-		fmt.Printf("Nova versão disponível: %s\n", latestVersion)
-		if latestRelease.Name != "" {
-			fmt.Printf("Release: %s\n", latestRelease.Name)
-		}
-
-		if checkOnly {
-			fmt.Println("\nPara atualizar, execute: bast update")
-			return
-		}
-
-		fmt.Print("\nDeseja atualizar agora? [y/n]: ")
-		var response string
-		_, err = fmt.Scanln(&response)
-		if err != nil {
-			verbosePrint(cmd, "Erro ao ler entrada do usuário: %v", err)
-			return
-		}
-
-		responseLower := strings.ToLower(response)
-		if !strings.EqualFold(responseLower, "s") && !strings.EqualFold(responseLower, "sim") &&
-			!strings.EqualFold(responseLower, "y") && !strings.EqualFold(responseLower, "yes") {
-			fmt.Println("Atualização cancelada.")
-			return
-		}
-
-		fmt.Println("\nAtualizando bast CLI...")
-		verbosePrint(cmd, "Executando: go install github.com/CristianSsousa/go-bast-cli@%s", latestRelease.TagName)
-
-		// Validar tag antes de usar no comando
-		tag := latestRelease.TagName
-		if tag == "" || strings.Contains(tag, " ") {
-			fmt.Fprintf(os.Stderr, "Erro: tag de versão inválida: %s\n", tag)
-			os.Exit(1)
-		}
-
-		//nolint:gosec // tag já foi validada acima
-		updateCmd := exec.Command("go", "install", fmt.Sprintf("github.com/CristianSsousa/go-bast-cli@%s", tag))
-		updateCmd.Stdout = os.Stdout
-		updateCmd.Stderr = os.Stderr
-
-		if err := updateCmd.Run(); err != nil {
-			verbosePrint(cmd, "Erro ao executar go install: %v", err)
-			fmt.Printf("\nErro ao atualizar: %v\n", err)
-			fmt.Println("\nTente atualizar manualmente:")
-			fmt.Printf("  go install github.com/CristianSsousa/go-bast-cli@%s\n", latestRelease.TagName)
-			os.Exit(1)
-		}
-
-		fmt.Println("\nAtualização concluída com sucesso!")
-		fmt.Printf("Versão instalada: %s\n", latestVersion)
-		fmt.Println("\nNota: Se o comando 'bast' não refletir a nova versão, certifique-se de que")
-		fmt.Println("o diretório $GOPATH/bin ou $GOBIN está no seu PATH.")
+		runUpdate(cmd)
 	},
 }
 
@@ -130,74 +33,83 @@ func init() {
 	updateCmd.Flags().BoolP("check", "c", false, "Apenas verifica se há atualização disponível, sem atualizar")
 }
 
-// getLatestRelease obtém a release mais recente do GitHub
-func getLatestRelease() (*githubRelease, error) {
-	client := &http.Client{
-		Timeout: timeout,
-	}
-
-	req, err := http.NewRequest("GET", githubAPIURL, http.NoBody)
+func runUpdate(cmd *cobra.Command) {
+	checkOnly, err := cmd.Flags().GetBool("check")
 	if err != nil {
-		return nil, fmt.Errorf("erro ao criar requisição: %w", err)
+		verbosePrint(cmd, "Erro ao obter flag 'check': %v", err)
+		checkOnly = false
 	}
 
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	verbosePrint(cmd, "Iniciando verificação de atualização...")
+	cfg := configForFeatures()
 
-	resp, err := client.Do(req)
+	fmt.Printf("Versão atual: %s\n", cfg.App.Version)
+	fmt.Println("Verificando atualizações disponíveis...")
+
+	client := &http.Client{Timeout: update.DefaultHTTPTimeout}
+	latestRelease, err := update.FetchLatest(client, update.GitHubAPIURL)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao fazer requisição: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("erro na resposta da API: status %d", resp.StatusCode)
+		verbosePrint(cmd, "Erro ao obter release: %v", err)
+		fmt.Printf("Erro ao verificar atualizações: %v\n", err)
+		fmt.Println("\nDica: Verifique sua conexão com a internet.")
+		os.Exit(1)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	latestVersion := update.TrimVersionPrefix(latestRelease.TagName)
+	currentVersion := cfg.App.Version
+
+	verbosePrint(cmd, "Versão mais recente encontrada: %s", latestVersion)
+	verbosePrint(cmd, "Versão atual: %s", currentVersion)
+
+	if update.IsUpToDate(currentVersion, latestVersion) {
+		fmt.Printf("Você já está usando a versão mais recente (%s)!\n", currentVersion)
+		return
+	}
+
+	fmt.Printf("Nova versão disponível: %s\n", latestVersion)
+	if latestRelease.Name != "" {
+		fmt.Printf("Release: %s\n", latestRelease.Name)
+	}
+
+	if checkOnly {
+		fmt.Println("\nPara atualizar, execute: bast update")
+		return
+	}
+
+	fmt.Print("\nDeseja atualizar agora? [y/n]: ")
+	var response string
+	_, err = fmt.Scanln(&response)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao ler resposta: %w", err)
+		verbosePrint(cmd, "Erro ao ler entrada do usuário: %v", err)
+		return
 	}
 
-	var release githubRelease
-	if err := json.Unmarshal(body, &release); err != nil {
-		return nil, fmt.Errorf("erro ao decodificar JSON: %w", err)
+	responseLower := strings.ToLower(response)
+	if !strings.EqualFold(responseLower, "s") && !strings.EqualFold(responseLower, "sim") &&
+		!strings.EqualFold(responseLower, "y") && !strings.EqualFold(responseLower, "yes") {
+		fmt.Println("Atualização cancelada.")
+		return
 	}
 
-	return &release, nil
-}
+	fmt.Println("\nAtualizando bast CLI...")
+	verbosePrint(cmd, "Executando: go install %s@%s", update.ModulePath, latestRelease.TagName)
 
-// compareVersions compara duas versões no formato semver (X.Y.Z)
-// Retorna: -1 se v1 < v2, 0 se v1 == v2, 1 se v1 > v2
-func compareVersions(v1, v2 string) int {
-	parts1 := strings.Split(v1, ".")
-	parts2 := strings.Split(v2, ".")
-
-	maxLen := len(parts1)
-	if len(parts2) > maxLen {
-		maxLen = len(parts2)
+	tag := latestRelease.TagName
+	if !update.ValidTag(tag) {
+		fmt.Fprintf(os.Stderr, "Erro: tag de versão inválida: %s\n", tag)
+		os.Exit(1)
 	}
 
-	for i := 0; i < maxLen; i++ {
-		var num1, num2 int
-
-		if i < len(parts1) {
-			if _, err := fmt.Sscanf(parts1[i], "%d", &num1); err != nil {
-				num1 = 0
-			}
-		}
-		if i < len(parts2) {
-			if _, err := fmt.Sscanf(parts2[i], "%d", &num2); err != nil {
-				num2 = 0
-			}
-		}
-
-		if num1 < num2 {
-			return -1
-		}
-		if num1 > num2 {
-			return 1
-		}
+	if err := update.RunGoInstall(tag, os.Stdout, os.Stderr); err != nil {
+		verbosePrint(cmd, "Erro ao executar go install: %v", err)
+		fmt.Printf("\nErro ao atualizar: %v\n", err)
+		fmt.Println("\nTente atualizar manualmente:")
+		fmt.Printf("  go install %s@%s\n", update.ModulePath, latestRelease.TagName)
+		os.Exit(1)
 	}
 
-	return 0
+	fmt.Println("\nAtualização concluída com sucesso!")
+	fmt.Printf("Versão instalada: %s\n", latestVersion)
+	fmt.Println("\nNota: Se o comando 'bast' não refletir a nova versão, certifique-se de que")
+	fmt.Println("o diretório $GOPATH/bin ou $GOBIN está no seu PATH.")
 }

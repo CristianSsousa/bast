@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/CristianSsousa/go-bast-cli/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -17,7 +16,7 @@ var versionCmd = &cobra.Command{
 		  bast version --help # Mostra ajuda deste comando`,
 	Run: func(cmd *cobra.Command, args []string) {
 		verbosePrint(cmd, "Obtendo informações de versão...")
-		cfg := config.Get()
+		cfg := configForFeatures()
 		fmt.Printf("%s v%s\n", cfg.App.Name, cfg.App.Version)
 		fmt.Println("Construído com Go e Cobra")
 		fmt.Printf("Autor: %s\n", cfg.App.Author)
