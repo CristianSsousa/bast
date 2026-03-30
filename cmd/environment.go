@@ -451,7 +451,12 @@ func deleteUnixEnvironmentVariable(cmd *cobra.Command, key string) error {
 	fmt.Printf("   %s\n", configFile)
 	fmt.Printf("   Procure por: export %s=...\n", key)
 	fmt.Println("\n2. Ou use sed para remover automaticamente:")
-	fmt.Printf("   sed -i '/^export %s=/d' %s\n", key, configFile)
+	if runtime.GOOS == "darwin" {
+		// macOS usa BSD sed: backup vazio obrigatório com -i
+		fmt.Printf("   sed -i '' '/^export %s=/d' %s\n", key, configFile)
+	} else {
+		fmt.Printf("   sed -i '/^export %s=/d' %s\n", key, configFile)
+	}
 	fmt.Println("\n3. Para remover da sessão atual:")
 	fmt.Printf("   unset %s\n", key)
 	fmt.Println("\n4. Recarregue o arquivo de configuração:")

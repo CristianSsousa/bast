@@ -1,13 +1,10 @@
 package cmd
 
 import (
-	"fmt"
-	"log"
-	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/CristianSsousa/go-bast-cli/internal/constants"
+	"github.com/CristianSsousa/go-bast-cli/internal/serve"
 	"github.com/spf13/cobra"
 )
 
@@ -42,41 +39,29 @@ func init() {
 }
 
 func startServer(cmd *cobra.Command) {
-	addr := fmt.Sprintf("%s:%s", host, port)
-
 	verbosePrint(cmd, "Configurando servidor HTTP...\n")
 	verbosePrint(cmd, "Host: %s\n", host)
 	verbosePrint(cmd, "Porta: %s\n", port)
 	verbosePrint(cmd, "Endpoint principal: %s\n", endpoint)
 
-	http.HandleFunc("/", handler)
-	http.HandleFunc("/health", healthHandler)
+	r, w, i := serve.DefaultTimeouts()
+	verbosePrint(cmd, "ReadTimeout: %v\n", r)
+	verbosePrint(cmd, "WriteTimeout: %v\n", w)
+	verbosePrint(cmd, "IdleTimeout: %v\n", i)
+	verbosePrint(cmd, "Servidor pronto para receber conexões.\n")
 
-	srv := &http.Server{
-		Addr:         addr,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+	opts := serve.Options{
+		Host:         host,
+		Port:         port,
+		Endpoint:     endpoint,
+		ReadTimeout:  r,
+		WriteTimeout: w,
+		IdleTimeout:  i,
 	}
 
-	verbosePrint(cmd, "ReadTimeout: %v\n", srv.ReadTimeout)
-	verbosePrint(cmd, "WriteTimeout: %v\n", srv.WriteTimeout)
-	verbosePrint(cmd, "IdleTimeout: %v\n", srv.IdleTimeout)
-
-	log.Printf("Servidor iniciando em http://%s", addr)
-	log.Printf("Endpoint principal: %s", endpoint)
-	verbosePrint(cmd, "Servidor pronto para receber conexões.\n")
-	if err := srv.ListenAndServe(); err != nil {
+	log := logForFeatures()
+	if err := serve.Run(log, opts); err != nil {
 		verbosePrint(cmd, "Erro ao iniciar servidor: %v\n", err)
 		log.Fatal(err)
 	}
-}
-
-func handler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Hello, World! Este é um servidor CLI construído com Go e Cobra.")
-}
-
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, "OK")
 }

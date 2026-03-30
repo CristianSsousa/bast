@@ -216,16 +216,20 @@ bast completion powershell | Out-String | Invoke-Expression
 
 ```
 .
-├── cmd/                  # Comandos CLI
-│   ├── root.go          # Comando raiz
-│   ├── version.go       # Comando version
-│   ├── greet.go         # Comando greet
-│   └── serve.go         # Comando serve
-├── .github/             # GitHub Actions e templates
-│   └── workflows/       # Workflows de CI/CD
+├── cmd/                     # Comandos Cobra (adaptador; delega a internal/<feature>)
+├── docs/                    # Documentação (ex.: ARCHITECTURE.md)
+├── internal/
+│   ├── clienv/              # Config + logger após bootstrap
+│   ├── config/              # Viper e struct de configuração
+│   ├── constants/
+│   ├── install/             # Feature: bast install
+│   ├── logger/
+│   ├── serve/               # Feature: bast serve
+│   └── update/              # Feature: bast update
+├── pkg/utils/               # Helpers exportados pelo módulo
+├── .github/workflows/       # CI/CD
+├── main.go
 ├── go.mod
-├── go.sum
-├── main.go              # Ponto de entrada
 └── README.md
 ```
 
